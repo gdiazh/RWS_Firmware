@@ -1,0 +1,7 @@
+ros_uart_controller/__pycache__/
+ros_uart_controller/data/
+ros_uart_controller/dummy_data/
+
+*.pyc
+*~
+*.csv
