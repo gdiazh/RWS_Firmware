@@ -6,8 +6,11 @@
 */
 
 #include "rws_firmware.h"
+#include "WDTZero.h"
 
 RWFirmware rws(&sercom1, &sercom2, SDA_PA16_SERCOM10, SCL_PA17_SERCOM11, SDA_PA08_SERCOM20, SCL_PA09_SERCOM21);
+
+WDTZero MyWatchDoggy; // Define WDT  
 
 uint8_t speed_status[2] = {0, 0};
 uint8_t current_status[2] = {0, 0};
@@ -16,18 +19,37 @@ uint16_t speed_status_value = 0;
 
 void setup()
 {
+    // Fault handling
+    MyWatchDoggy.attachShutdown(myshutdown);
+    MyWatchDoggy.setup(WDT_SOFTCYCLE32S);  // initialize WDT-softcounter refesh cycle on 32sec interval
+    // RWS setup
+    delay(200);
     rws.begin();
     Wire.onReceive(readMasterWrite);
     Wire.onRequest(responseToMasterRead);
     rws.setDefault(0, 0, 0);
+    // delay(200);
+    // rws.setDefault(0, 0, 0);
+
+    // Debug
+    pinMode(DEBUG_LED_1, OUTPUT);
 }
 
 void loop()
 { 
+    // rws.checkFaults();
+    digitalWrite(DEBUG_LED_1, HIGH);
+    delay(500);
+
     // rws.runUartControllerCommand();
     rws.runI2cControllerCommand();
     // rws.readStatesDRVs();
     // rws.sendDataUart();
+    
+    digitalWrite(DEBUG_LED_1, LOW);
+    MyWatchDoggy.clear();  // refresh wdt - before it loops
+    delay(500);
+    // SerialPort.println("running");
 }
 
 void readMasterWrite(int HowMany)
@@ -70,4 +92,11 @@ void responseToMasterRead()
     {
         rws.write2b(rws.motor3_data.raw_current[0], rws.motor3_data.raw_current[1]);
     }
+}
+
+void myshutdown()
+{
+
+SerialPort.println("\nWe gonna shut down ! ...");
+  
 }
