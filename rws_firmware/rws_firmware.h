@@ -42,14 +42,17 @@
 // Motor Parameters
 #define CONSTANT_RM 0x3C //RPH_CT = 1.8624[Ohm], the closest to 1.9[Ohm] measured
 #define CONSTANT_KT 0x19 //Kt = 16.56[mV/Hz], the closest to 16.2504 [mV/Hz] measured
+#define FAULTS_CHECK_TIME 10000 //[ms]
+#define SPEED_FAULT 10000 //[rpm]
 // Pin Assignments
-#define DEBUG_LED_1 9
 #define SDA_PA22_SERCOM30 20 //default I2C SDA
 #define SCL_PA23_SERCOM31 21 //default I2C SCL
 #define SDA_PA16_SERCOM10 11
 #define SCL_PA17_SERCOM11 13
 #define SDA_PA08_SERCOM20 4
 #define SCL_PA09_SERCOM21 3
+#define SPEEDFAULT PORT_PA31
+#define DEBUG_LED_1 5
 #ifndef SerialPort
     #define SerialPort SerialUSB
 #endif
@@ -111,6 +114,8 @@ class RWFirmware
     // I2C (TWI) Interfaces
     TwoWire motor2_;
     TwoWire motor3_;
+    // faults
+    unsigned long last_faults_check_time_;
 public:
     // Public Members
     // Command handlers
@@ -134,10 +139,14 @@ public:
     void sendDataUart(void);
     void runI2cControllerCommand(void);
     void runUartControllerCommand(void);
+    void readStatesDRV(uint8_t motor_id);
     void readStatesDRVs(void);
     void setMotorSpeed(uint8_t motor_id, float speed);
     void drvRead(uint8_t motor_id, uint8_t reg_addr, uint8_t *data);
     void drvWrite(uint8_t motor_id, uint8_t reg_addr, uint8_t data1, uint8_t data2);
     void write2b(uint8_t data1, uint8_t data2);
     uint8_t checksum(uint8_t *packet, uint8_t n);
+    void checkFaults();
+    void raiseSpeedFault();
+    void cleareSpeedFault();
 };

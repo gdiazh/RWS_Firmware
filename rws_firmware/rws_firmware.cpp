@@ -19,8 +19,11 @@ void RWFirmware::begin(void)
     pinPeripheral(SDA_PA08_SERCOM20, PIO_SERCOM_ALT);
     pinPeripheral(SCL_PA09_SERCOM21, PIO_SERCOM_ALT);
     // Wire.setClock(100000);
-    motor2_.setClock(200000);
-    motor3_.setClock(200000);
+    motor2_.setClock(100000);
+    motor3_.setClock(100000);
+    // Faults
+    PORT->Group[PORTA].DIRSET.reg = SPEEDFAULT;
+    PORT->Group[PORTA].OUTCLR.reg = SPEEDFAULT;
     // Debug 
     pinMode(DEBUG_LED_1, OUTPUT);
     digitalWrite(DEBUG_LED_1, LOW);
@@ -75,6 +78,8 @@ void RWFirmware::setDefault(uint16_t m1_spd, uint16_t m2_spd, uint16_t m3_spd){
     setMotorSpeed(MOTOR1_ID, m1_spd);
     setMotorSpeed(MOTOR2_ID, m2_spd);
     setMotorSpeed(MOTOR3_ID, m3_spd);
+    // Faults
+    last_faults_check_time_ = millis();
     // Debug Led State
     digitalWrite(DEBUG_LED_1, LOW);
     delay(100); // wait for the motors to reach initial speed
@@ -217,6 +222,47 @@ void RWFirmware::runUartControllerCommand(void)
             uart_packet_.cmd_speed_m3 = uart_cmd.speed;
         }
         uart_cmd_result = 0;
+    }
+}
+
+void RWFirmware::readStatesDRV(uint8_t motor_id)
+{
+    /* Read all motor states from respective DRV10987 drivers
+    * through the respective I2C interface and update data structs
+    *
+    * @update motor1_data motor_data_t speed(float) and current(float)
+    * @update motor2_data motor_data_t speed(float) and current(float)
+    * @update motor3_data motor_data_t speed(float) and current(float)
+    */
+    if (motor_id == MOTOR1_ID)
+    {
+        // Read motor 1 state
+        drvRead(MOTOR1_ID, DRV10987_MOTORSPEED_STATUS_ADDR, motor1_data.raw_speed);
+        motor1_data.speed = (motor1_data.raw_speed[0]<<8) | motor1_data.raw_speed[1];     //[RPM]
+        // delay(5);   //TODO: check if/why this is necessary
+        drvRead(MOTOR1_ID, DRV10987_MOTORCURRENT_STATUS_ADDR, motor1_data.raw_current);
+        uint16_t current_aux1 = (motor1_data.raw_current[0]&0x07)<<8 | motor1_data.raw_current[1];
+        motor1_data.current = 1.46484375*(current_aux1-1023);           //[mA]
+    }
+    if (motor_id == MOTOR2_ID)
+    {
+        // Read motor 2 state
+        drvRead(MOTOR2_ID, DRV10987_MOTORSPEED_STATUS_ADDR, motor2_data.raw_speed);
+        motor2_data.speed = (motor2_data.raw_speed[0]<<8) | motor2_data.raw_speed[1];     //[RPM]
+        // delay(5);
+        drvRead(MOTOR2_ID, DRV10987_MOTORCURRENT_STATUS_ADDR, motor2_data.raw_current);
+        uint16_t current_aux2 = (motor2_data.raw_current[0]&0x07)<<8 | motor2_data.raw_current[1];
+        motor2_data.current = 1.46484375*(current_aux2-1023);           //[mA]
+    }
+    if (motor_id == MOTOR3_ID)
+    {
+        // Read motor 3 state
+        drvRead(MOTOR3_ID, DRV10987_MOTORSPEED_STATUS_ADDR, motor3_data.raw_speed);
+        motor3_data.speed = (motor3_data.raw_speed[0]<<8) | motor3_data.raw_speed[1];     //[RPM]
+        // delay(5);
+        drvRead(MOTOR3_ID, DRV10987_MOTORCURRENT_STATUS_ADDR, motor3_data.raw_current);
+        uint16_t current_aux3 = (motor3_data.raw_current[0]&0x07)<<8 | motor3_data.raw_current[1];
+        motor3_data.current = 1.46484375*(current_aux3-1023);           //[mA]
     }
 }
 
@@ -391,4 +437,50 @@ uint8_t RWFirmware::checksum(uint8_t *packet, uint8_t n)
     uint32_t sum = 0;
     for (int j=0;j<n-1;j++) sum += packet[j];
     return sum & 0x00FF;
+}
+
+void RWFirmware::checkFaults()
+{
+    if ((millis()-last_faults_check_time_)>FAULTS_CHECK_TIME)
+    {
+        readStatesDRVs();
+        SerialPort.print(motor1_data.speed);
+        SerialPort.print("\t\t");
+        SerialPort.print(motor2_data.speed);
+        SerialPort.print("\t\t");
+        SerialPort.print(motor3_data.speed);
+        SerialPort.print("\t\t");
+
+        SerialPort.print(motor1_data.current);
+        SerialPort.print("\t\t");
+        SerialPort.print(motor2_data.current);
+        SerialPort.print("\t\t");
+        SerialPort.println(motor3_data.current);
+
+        if (motor1_data.speed >SPEED_FAULT || motor2_data.speed >SPEED_FAULT || motor3_data.speed >SPEED_FAULT)
+        {
+            raiseSpeedFault();
+            SerialPort.println("[WARNING] SPEED FAULT");
+            SerialPort.println("[WARNING] Waiting for driver reset...");
+            delay(3000);
+            SerialPort.println("[WARNING] CLEARING SPEED FAULT");
+            cleareSpeedFault();
+            SerialPort.println("[WARNING] Waiting driver power on...");
+            delay(100);
+            SerialPort.println("[WARNING] Setting Default Speeds...");
+            begin();
+            setDefault(0,0,0);
+        }
+        else
+        last_faults_check_time_ = millis();
+    }
+}
+
+void RWFirmware::raiseSpeedFault()
+{
+    PORT->Group[PORTA].OUTSET.reg = SPEEDFAULT;
+}
+void RWFirmware::cleareSpeedFault()
+{
+    PORT->Group[PORTA].OUTCLR.reg = SPEEDFAULT;
 }
